@@ -1,6 +1,6 @@
 {
   "name": "psparser",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Shells out to Powershell PSParser module and returns results in neat array",
   "main": "src/PSParser.js",
   "scripts": {
