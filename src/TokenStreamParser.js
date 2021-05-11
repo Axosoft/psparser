@@ -6,9 +6,9 @@ const toObject = (buffer) => {
     start: o.Start,
     length: o.Length,
     startLine: o.StartLine,
-    startColumn: o.startColumn,
+    startColumn: o.StartColumn,
     endLine: o.EndLine,
-    endColumn: o.endColumn
+    endColumn: o.EndColumn
   };
 };
 const DELIMITER = 0;
