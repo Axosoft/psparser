@@ -18,28 +18,29 @@ This library directly translates the output of [PSParser](https://docs.microsoft
 
 Tokens will be an array containing objects of the following type:
 ```typescript
-type TokenType
-  = 'Attribute'
-  | 'Command'
-  | 'CommandArgument'
-  | 'CommandParameter'
-  | 'Comment'
-  | 'GroupEnd'
-  | 'GroupStart'
-  | 'Keyword'
-  | 'LineContinuation'
-  | 'LoopLabel'
-  | 'Member'
-  | 'NewLine'
-  | 'Number'
-  | 'Operator'
-  | 'Position'
-  | 'StatementSeparator'
-  | 'String'
-  | 'Type'
-  | 'Unknown'
-  | 'Variable'
-  ;
+enum TokenType {
+  Attribute = 9,
+  Command = 1,
+  CommandArgument = 3,
+  CommandParameter = 2,
+  Comment = 15,
+  GroupEnd = 13,
+  GroupStart = 12,
+  Keyword = 14,
+  LineContinuation = 18,
+  LoopLabel = 8,
+  Member = 7,
+  NewLine = 17	,
+  Number = 4,
+  Operator = 11,
+  Position = 19,
+  StatementSeparator = 16,
+  String = 5,
+  Type = 10,
+  Unknown = 0,
+  Variable = 6
+};
+
 interface Token {
   content: string;
   type: TokenType;
@@ -51,3 +52,5 @@ interface Token {
   endColumn: number;
 }
 ```
+
+You can access `TOKEN_TYPE` enum directly off of `PSParser.TOKEN_TYPE`.
