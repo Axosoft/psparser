@@ -7,31 +7,30 @@ let byteSequence;
 const tests = [
   function test_EntireContentIsInBuffer() {
     const consumeBufferUntilSequence = new ConsumeBufferUntilSequenceParser(byteSequence, 100);
+    const bufferToParse = Buffer.concat([
+      Buffer.from('hello how are you doing\n'),
+      byteSequence
+    ]);
     assert.deepEqual(
-      consumeBufferUntilSequence.parse(
-        Buffer.concat([
-          Buffer.from('hello how are you doing\n'),
-          byteSequence
-        ])
-      ),
-      { finished: true, remaining: Buffer.alloc(0) }
+      consumeBufferUntilSequence.parse(bufferToParse),
+      { done: true, nextIndex: bufferToParse.length }
     );
   },
 
   function test_BufferIsSplit() {
     const consumeBufferUntilSequence = new ConsumeBufferUntilSequenceParser(byteSequence, 100);
+    let bufferToParse = Buffer.from('hello how are you doing\n');
     assert.deepEqual(
-      consumeBufferUntilSequence.parse(Buffer.from('hello how are you doing\n')),
-      { finished: false, remaining: Buffer.alloc(0) }
+      consumeBufferUntilSequence.parse(bufferToParse),
+      { done: false, nextIndex: bufferToParse.length }
     );
+    bufferToParse = Buffer.concat([
+      Buffer.from('testing all of the things'),
+      byteSequence
+    ]);
     assert.deepEqual(
-      consumeBufferUntilSequence.parse(
-        Buffer.concat([
-          Buffer.from('testing all of the things'),
-          byteSequence
-        ])
-      ),
-      { finished: true, remaining: Buffer.alloc(0) }
+      consumeBufferUntilSequence.parse(bufferToParse),
+      { done: true, nextIndex: bufferToParse.length }
     );
   },
 
@@ -46,32 +45,32 @@ const tests = [
     for (i = 0; i < testBuffer.length - 1; ++i) {
       assert.deepEqual(
         consumeBufferUntilSequence.parse(testBuffer.slice(i, i + 1)),
-        { finished: false, remaining: Buffer.alloc(0) }
+        { done: false, nextIndex: 1 }
       );
     }
 
     assert.deepEqual(
       consumeBufferUntilSequence.parse(testBuffer.slice(i, i + 1)),
-      { finished: true, remaining: Buffer.alloc(0) }
+      { done: true, nextIndex: 1 }
     )
   },
 
   function test_BufferHasContentLeftOver() {
     const consumeBufferUntilSequence = new ConsumeBufferUntilSequenceParser(byteSequence, 100);
+    const discardBuffer = Buffer.concat([
+      Buffer.from('hello how are you doing\n'),
+      byteSequence
+    ]);
+    const bufferToParse = Buffer.concat([
+      discardBuffer,
+      Buffer.from('but why male models?')
+    ]);
     assert.deepEqual(
       consumeBufferUntilSequence.parse(
-        Buffer.concat([
-          Buffer.from('hello how are you doing\n'),
-          byteSequence,
-          Buffer.from('but why male models?')
-        ])
+        bufferToParse
       ),
-      { finished: true, remaining: Buffer.from('but why male models?') }
+      { done: true, nextIndex: discardBuffer.length }
     );
-  },
-
-  function test_BufferDoesNotContainSequenceAndIsSuperLong() {
-
   }
 ];
 

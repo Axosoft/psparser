@@ -1,47 +1,45 @@
 const assert = require('assert');
 
 class ConsumeBufferUntilSequenceParser {
-  constructor(byteSequence, maxBytesToSeek) {
-    if (byteSequence.length > maxBytesToSeek) {
+  constructor(byteSequence, maxBytesToSeek = -1) {
+    if (maxBytesToSeek !== -1 && byteSequence.length > maxBytesToSeek) {
       throw new Error('maxBytesToSeek must be greater than byteSequence length');
     }
 
     this._accumulatedSequence = [];
     this._byteSequence = byteSequence;
-    // We keep this around as a safety mechanism to fail if it seems like we're going to consume indefinitely
     this._maxBytesToSeek = maxBytesToSeek;
     this._numBytesConsumed = 0;
   }
 
-  parse(data) {
-    let dataConsumed = 0;
+  parse(data, parseStart = 0) {
+    let dataIndex = parseStart;
     let nextCharacter;
 
-    const consumeBytes = (numBytes) => {
-      dataConsumed += numBytes;
-      this._numBytesConsumed += numBytes;
-      assert(this._numBytesConsumed <= this._maxBytesToSeek, 'Should not consume more than expected bytes');
-    };
-
-    while (dataConsumed < data.length && (nextCharacter = this._byteSequence[this._accumulatedSequence.length]) !== undefined) {
-      const indexOfNextCharacter = data.indexOf(nextCharacter, dataConsumed);
+    while (dataIndex < data.length && (nextCharacter = this._byteSequence[this._accumulatedSequence.length]) !== undefined) {
+      const indexOfNextCharacter = data.indexOf(nextCharacter, dataIndex);
       if (indexOfNextCharacter === -1) {
-        consumeBytes(data.length - dataConsumed);
+        dataIndex = data.length;
         if (this._accumulatedSequence.length) {
           // we're not actually in a hit, reset the accumulatedSequence
           this._accumulatedSequence = [];
         }
-
-        continue;
+      } else {
+        dataIndex = indexOfNextCharacter + 1;
+        this._accumulatedSequence.push(nextCharacter);
       }
 
-      consumeBytes(indexOfNextCharacter + 1 - dataConsumed);
-      this._accumulatedSequence.push(nextCharacter);
+      if (this._maxBytesToSeek !== -1) {
+        assert(
+          this._numBytesConsumed + (dataIndex - parseStart) <= this._maxBytesToSeek,
+          'Should not consume more than expected bytes'
+        );
+      }
     }
 
     return {
-      finished: this._accumulatedSequence.length === this._byteSequence.length,
-      remaining: data.slice(dataConsumed)
+      done: this._accumulatedSequence.length === this._byteSequence.length,
+      nextIndex: dataIndex
     };
   }
 }

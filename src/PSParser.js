@@ -1,8 +1,14 @@
 const { spawn } = require('child_process');
 const path = require('path');
 
+const AccumulateBufferUntilSequenceParser = require('./AccumulateBufferUntilSequenceParser');
 const ConsumeBufferUntilSequenceParser = require('./ConsumeBufferUntilSequenceParser');
-const TokenStreamParser = require('./TokenStreamParser');
+
+const inputTerminatorPowershell = '`0==PSParserBeginParse==`0';
+const inputTerminator = '\n\0==PSParserBeginParse==\0\n';
+
+const outputTerminatorPowershell = '`0==PSParserFinishParse==`0';
+const outputTerminator = '\0==PSParserFinishParse==\0\n';
 
 // We do not store this as a separate file to have powershell call
 // so that we can workaround Powershell execution policy. If the wrong
@@ -15,10 +21,10 @@ const PS1ParserScript = `function GetStdinUntilFlag([String] $delimiter) {
 }
 
 while ($true) {
-  $nextCommand = GetStdinUntilFlag("\`0==PSParserBeginParse==\`0");
+  $nextCommand = GetStdinUntilFlag("${inputTerminatorPowershell}");
   $errors = $null;
   [Management.Automation.PSParser]::Tokenize($nextCommand, [ref]$errors) | ConvertTo-Json | Write-Host;
-  Write-Host "\`0";
+  Write-Host "${outputTerminatorPowershell}";
 }
 `;
 
@@ -38,6 +44,9 @@ class DisposeError extends Error {
 
 const MAX_RETRIES = 5;
 const psParserImpl = () => {
+  const inputTerminatorAsBuffer = Buffer.from(inputTerminator);
+  const outputTerminatorAsBuffer = Buffer.from(outputTerminator);
+
   // When we are marked as disposed, we track the reason so that we can relay that to caller
   let disposedReason = null;
   // Used to track number of consecutive times we've had to restart the parser process
@@ -139,54 +148,57 @@ const psParserImpl = () => {
     };
     parserProcess.on('close', handleUnexpectedClose);
 
-    const tokenStreamParser = new TokenStreamParser();
-    const inputTerminator = '\n\0==PSParserBeginParse==\0\n';
-    const input = `${inputCodeBlob}${inputTerminator}`;
     // Because we feed the powershell script directly into PS
     // we cannot get rid of the `echo` that occurs when calling read-host
     // so we need a mechanism that can discard anything in stdout
     // up until a point we would logically say is the intended safe
     // zone for parsing.
-    let consumeBufferUntilSequence = new ConsumeBufferUntilSequenceParser(
-      Buffer.from(inputTerminator),
-      input.length + 1
-    );
+    let consumeBufferUntilSequence = new ConsumeBufferUntilSequenceParser(inputTerminatorAsBuffer);
+    const bufferAccumulator = new AccumulateBufferUntilSequenceParser(outputTerminatorAsBuffer);
 
-    parserProcess.stdout.on('data', (incomingData) => {
-      let data = incomingData;
+    parserProcess.stdout.on('data', (data) => {
+      let startingIndex = 0;
       if (consumeBufferUntilSequence) {
-        const { finished, remaining } = consumeBufferUntilSequence.parse(incomingData);
-        if (finished) {
+        const { done, nextIndex } = consumeBufferUntilSequence.parse(data);
+        if (done) {
           consumeBufferUntilSequence = null;
         }
 
-        if (remaining.length === 0) {
+        if (nextIndex === data.length) {
           return;
         }
 
-        data = remaining;
+        startingIndex = nextIndex;
       }
 
-      let done;
-      try {
-        done = tokenStreamParser.parse(data);
-        if (done) {
+      if (bufferAccumulator.parse(data, startingIndex)) {
+        try {
           failureRetryCount = 0;
-          resolve(tokenStreamParser.getTokens());
+          resolve(
+            JSON.parse(bufferAccumulator.getBuffer())
+              .map((o) => ({
+                content: o.Content,
+                type: o.Type,
+                start: o.Start,
+                length: o.Length,
+                startLine: o.StartLine,
+                startColumn: o.StartColumn,
+                endLine: o.EndLine,
+                endColumn: o.EndColumn
+              }))
+          );
+        } catch (error) {
+          reject(error);
         }
-      } catch (error) {
-        done = true;
-        reject(error);
-      }
 
-      if (done) {
         parserProcess.stdout.removeAllListeners('data');
         parserProcess.off('close', handleUnexpectedClose);
         startQueuedParseRequest();
       }
     });
 
-    parserProcess.stdin.write(input);
+    parserProcess.stdin.write(inputCodeBlob);
+    parserProcess.stdin.write(inputTerminatorAsBuffer);
   };
 
   makeParserProcess();
