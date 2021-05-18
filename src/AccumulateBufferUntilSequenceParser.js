@@ -2,7 +2,7 @@ const ConsumeBufferUntilSequenceParser = require('./ConsumeBufferUntilSequencePa
 
 class AccumulateBufferUntilSequenceParser extends ConsumeBufferUntilSequenceParser {
   constructor(byteSequence) {
-    super(byteSequence, -1);
+    super(byteSequence);
     this._buffer = Buffer.alloc(0);
   }
 
