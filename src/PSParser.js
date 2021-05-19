@@ -4,24 +4,19 @@ const path = require('path');
 const AccumulateBufferUntilSequenceParser = require('./AccumulateBufferUntilSequenceParser');
 const ConsumeBufferUntilSequenceParser = require('./ConsumeBufferUntilSequenceParser');
 
-const inputTerminatorPowershell = '`0==PSParserBeginParse==`0';
-const inputTerminator = '\n\0==PSParserBeginParse==\0\n';
-
-const outputTerminatorPowershell = '`0==PSParserFinishParse==`0';
-const outputTerminator = '\0==PSParserFinishParse==\0\n';
+const outputTerminatorPowershell = '`0';
+const outputTerminator = '\0\n';
 
 // We do not store this as a separate file to have powershell call
 // so that we can workaround Powershell execution policy. If the wrong
 // policy is set on a computer, we will not be able to run this script
 // but there is nothing that prevents us from sending the raw commands
 // of the script directly to powershell.
-const PS1ParserScript = `function GetStdinUntilFlag([String] $delimiter) {
-  $lines = while (($line = read-host) -cne $delimiter) { $line }
-  return $lines -join "\`r\`n"
-}
-
+const PS1ParserScript = `
+$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::UTF8;
 while ($true) {
-  $nextCommand = GetStdinUntilFlag("${inputTerminatorPowershell}");
+  $nextCommandInBase64 = read-host;
+  $nextCommand = [System.Text.Encoding]::Utf8.GetString([System.Convert]::FromBase64String($nextCommandInBase64));
   $errors = $null;
   [Management.Automation.PSParser]::Tokenize($nextCommand, [ref]$errors) | ConvertTo-Json | Write-Host;
   Write-Host "${outputTerminatorPowershell}";
@@ -42,11 +37,21 @@ class DisposeError extends Error {
   }
 }
 
+const toCamelCaseToken = (o) => ({
+  content: o.Content,
+  type: o.Type,
+  start: o.Start,
+  length: o.Length,
+  startLine: o.StartLine,
+  startColumn: o.StartColumn,
+  endLine: o.EndLine,
+  endColumn: o.EndColumn
+});
+
+let what = 0;
+
 const MAX_RETRIES = 5;
 const psParserImpl = () => {
-  const inputTerminatorAsBuffer = Buffer.from(inputTerminator);
-  const outputTerminatorAsBuffer = Buffer.from(outputTerminator);
-
   // When we are marked as disposed, we track the reason so that we can relay that to caller
   let disposedReason = null;
   // Used to track number of consecutive times we've had to restart the parser process
@@ -153,8 +158,8 @@ const psParserImpl = () => {
     // so we need a mechanism that can discard anything in stdout
     // up until a point we would logically say is the intended safe
     // zone for parsing.
-    let consumeBufferUntilSequence = new ConsumeBufferUntilSequenceParser(inputTerminatorAsBuffer);
-    const bufferAccumulator = new AccumulateBufferUntilSequenceParser(outputTerminatorAsBuffer);
+    let consumeBufferUntilSequence = new ConsumeBufferUntilSequenceParser(Buffer.from('\n'));
+    const bufferAccumulator = new AccumulateBufferUntilSequenceParser(Buffer.from(outputTerminator));
 
     parserProcess.stdout.on('data', (data) => {
       let startingIndex = 0;
@@ -174,19 +179,17 @@ const psParserImpl = () => {
       if (bufferAccumulator.parse(data, startingIndex)) {
         try {
           failureRetryCount = 0;
-          resolve(
-            JSON.parse(bufferAccumulator.getBuffer())
-              .map((o) => ({
-                content: o.Content,
-                type: o.Type,
-                start: o.Start,
-                length: o.Length,
-                startLine: o.StartLine,
-                startColumn: o.StartColumn,
-                endLine: o.EndLine,
-                endColumn: o.EndColumn
-              }))
-          );
+          const finalBuffer = bufferAccumulator.getBuffer();
+          if (finalBuffer.length) {
+            const tokenOrTokens = JSON.parse(finalBuffer);
+            resolve(
+              tokenOrTokens instanceof Array
+                ? tokenOrTokens.map(toCamelCaseToken)
+                : [toCamelCaseToken(tokenOrTokens)]
+            );
+          } else {
+            resolve([]);
+          }
         } catch (error) {
           reject(error);
         }
@@ -197,8 +200,8 @@ const psParserImpl = () => {
       }
     });
 
-    parserProcess.stdin.write(inputCodeBlob);
-    parserProcess.stdin.write(inputTerminatorAsBuffer);
+    parserProcess.stdin.write(Buffer.from(inputCodeBlob).toString('base64'));
+    parserProcess.stdin.write('\n');
   };
 
   makeParserProcess();
