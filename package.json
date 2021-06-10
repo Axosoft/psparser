@@ -9,7 +9,7 @@
   "files": [
     "src/*"
   ],
-  "repository": "https://github.com/implausible/psparser.git",
-  "author": "Tyler Ang-Wanek",
+  "repository": "https://github.com/Axosoft/psparser.git",
+  "author": "Axosoft, LLC",
   "license": "MIT"
 }
